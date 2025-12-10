@@ -24,15 +24,12 @@ class MessageOrchestrator:
         self.chatbot = chatbot
         self.adapters = adapters
 
-    # [BARU] Fungsi untuk mematikan sesi
     async def timeout_session(self, conversation_id: str, platform: str, user_id: str):
         adapter = self.adapters.get(platform)
         if not adapter: return
 
         logger.info(f"TIMEOUT: Auto-closing session {conversation_id} for {platform} user {user_id}")
 
-        # 1. Trigger Backend AI untuk menutup sesi (Isi end_timestamp)
-        # Kita kirim "Terima Kasih" secara silent.
         try:
             await self.chatbot.ask(
                 query="Terima Kasih", 
@@ -43,16 +40,23 @@ class MessageOrchestrator:
         except Exception as e:
             logger.error(f"Failed to send close signal to AI: {e}")
 
-        # 2. Kirim Pesan Penutup ke User (Sesuai Gambar Referensi)
         closing_text = (
             "Untuk keamanan dan kenyamanan Anda, sesi ini telah diakhiri. "
             "Silakan mulai percakapan kembali dari awal jika membutuhkan bantuan.\n\n"
             "_For your safety and convenience, I've ended this session. "
             "Feel free to start a new chat whenever you're ready._"
         )
+        
+        send_kwargs = {}
+        if platform == "email":
+            send_kwargs = {"subject": "Session Ended"}
+            meta = self.repo_msg.get_email_metadata(conversation_id)
+            if meta:
+                send_kwargs.update(meta)
+                if 'graph_message_id' in send_kwargs:
+                    del send_kwargs['graph_message_id']
 
-        # Kirim langsung (WA/IG tidak butuh metadata subject)
-        adapter.send_message(user_id, closing_text)
+        adapter.send_message(user_id, closing_text, **send_kwargs)
 
     async def handle_feedback(self, msg: IncomingMessage):
         payload_str = msg.metadata.get("payload", "")
@@ -71,7 +75,6 @@ class MessageOrchestrator:
         url = settings.FEEDBACK_API_URL
         headers = {"Content-Type": "application/json"}
         if settings.CORE_API_KEY: headers["X-API-Key"] = settings.CORE_API_KEY
-        logger.info(f"Mengirim Feedback ke {url} | Data: {backend_payload}")
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 await client.post(url, json=backend_payload, headers=headers)
@@ -98,28 +101,25 @@ class MessageOrchestrator:
 
     async def process_message(self, msg: IncomingMessage):
         adapter = self.adapters.get(msg.platform)
-        if not adapter:
-            logger.warning(f"No adapter found for platform: {msg.platform}")
-            return
+        if not adapter: return
 
+        # [UPDATE] Kirim Typing Indicator + Message ID
         try:
-            adapter.send_typing_on(msg.platform_unique_id)
+            msg_id = msg.metadata.get("message_id") if msg.metadata else None
+            adapter.send_typing_on(msg.platform_unique_id, message_id=msg_id)
         except Exception:
             pass
 
         if not msg.conversation_id:
-            # 1. KHUSUS EMAIL: Cek Thread Key
             if msg.platform == "email" and msg.metadata and msg.metadata.get("thread_key"):
                 thread_key = msg.metadata.get("thread_key")
                 existing_id = self.repo_msg.get_conversation_by_thread(thread_key)
                 if existing_id:
                     msg.conversation_id = existing_id
-                    logger.info(f"THREAD MATCH: '{thread_key}' linked to Session {existing_id}")
                 else:
                     logger.info(f"NEW THREAD DETECTED: '{thread_key}'. Starting new session.")
             
-            # 2. NON-EMAIL (WA/IG): Pakai Active User Session
-            elif msg.platform != "email":
+            if not msg.conversation_id and msg.platform != "email":
                 msg.conversation_id = self.repo_conv.get_active_id(msg.platform_unique_id, msg.platform)
 
         try:
@@ -130,13 +130,11 @@ class MessageOrchestrator:
 
         try:
             adapter.send_typing_off(msg.platform_unique_id)
-        except Exception:
-            pass
+        except Exception: pass
 
         if not response or not response.answer:
             return 
 
-        # Kirim Reply
         send_kwargs = {}
         if msg.platform == "email":
             if msg.metadata:
@@ -157,7 +155,6 @@ class MessageOrchestrator:
         if answer_id:
             adapter.send_feedback_request(msg.platform_unique_id, answer_id)
             
-        # Simpan Metadata
         if msg.platform == "email" and response.conversation_id and msg.metadata:
             current_thread_session = self.repo_msg.get_conversation_by_thread(msg.metadata.get("thread_key"))
             if not current_thread_session or current_thread_session == response.conversation_id:

@@ -17,7 +17,8 @@ logger = logging.getLogger("adapters.email")
 class EmailAdapter(BaseAdapter):
     _token_cache: Dict[str, Any] = {}
 
-    def send_typing_on(self, recipient_id: str):
+    # [UPDATE] Dummy implementation agar tidak error
+    def send_typing_on(self, recipient_id: str, message_id: str = None):
         pass 
 
     def send_typing_off(self, recipient_id: str):
@@ -88,7 +89,6 @@ class EmailAdapter(BaseAdapter):
             "Content-Type": "application/json"
         }
 
-        # [LOGIKA 1: REPLY THREADING]
         if graph_message_id:
             logger.info(f"Replying to existing thread using Graph ID: {graph_message_id}")
             url = f"https://graph.microsoft.com/v1.0/users/{user_id}/messages/{graph_message_id}/reply"
@@ -104,7 +104,6 @@ class EmailAdapter(BaseAdapter):
                 logger.error(f"Graph Reply Exception: {e}")
                 return {"sent": False, "error": str(e)}
 
-        # [LOGIKA 2: SEND NEW MAIL]
         url = f"https://graph.microsoft.com/v1.0/users/{user_id}/sendMail"
         email_msg = {
             "message": {

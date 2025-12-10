@@ -10,11 +10,10 @@ async def run_scheduler():
     Background task untuk menutup sesi idle.
     [MODE TESTING CEPAT]
     """
-    logger.info("⏳ Session Timeout Scheduler Started (FAST MODE: 5 Mins Idle Check)...")
+    logger.info("⏳ Session Timeout Scheduler Started...")
     
     repo_conv = ConversationRepository()
     
-    # Delay awal
     await asyncio.sleep(5)
 
     while True:
@@ -37,4 +36,4 @@ async def run_scheduler():
         except Exception as e:
             logger.error(f"Scheduler Error: {e}")
         
-        await asyncio.sleep(60)
+        await asyncio.sleep(30)

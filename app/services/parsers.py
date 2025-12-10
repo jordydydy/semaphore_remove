@@ -14,23 +14,23 @@ def parse_whatsapp_payload(data: Dict[str, Any]) -> Optional[IncomingMessage]:
             
         message = value["messages"][0]
         sender_id = message.get("from")
+        msg_id = message.get("id") # [BARU] Ambil ID Pesan
 
-        # Abaikan pesan dari diri sendiri (Loop Prevention)
+        # Abaikan pesan dari diri sendiri
         if str(sender_id) == str(settings.WHATSAPP_PHONE_NUMBER_ID):
             return None
 
         msg_type = message.get("type")
         
-        # Handle Text Message
         if msg_type == "text":
             return IncomingMessage(
                 platform_unique_id=sender_id,
                 query=message["text"]["body"],
                 platform="whatsapp",
-                metadata={"phone": sender_id}
+                # [BARU] Simpan di metadata
+                metadata={"phone": sender_id, "message_id": msg_id}
             )
             
-        # Handle Button Reply
         elif msg_type == "interactive":
             interactive = message.get("interactive", {})
             if interactive.get("type") == "button_reply":
@@ -39,7 +39,7 @@ def parse_whatsapp_payload(data: Dict[str, Any]) -> Optional[IncomingMessage]:
                     platform_unique_id=sender_id,
                     query=f"FEEDBACK_EVENT:{btn_id}",
                     platform="whatsapp",
-                    metadata={"is_feedback": True, "payload": btn_id}
+                    metadata={"is_feedback": True, "payload": btn_id, "message_id": msg_id}
                 )
                 
     except (IndexError, KeyError, AttributeError):
@@ -54,34 +54,28 @@ def parse_instagram_payload(data: Dict[str, Any]) -> Optional[IncomingMessage]:
         
         sender_id = messaging.get("sender", {}).get("id")
         
-        # Abaikan pesan dari diri sendiri (Loop Prevention)
         if str(sender_id) == str(settings.INSTAGRAM_CHATBOT_ID):
             return None
 
         message = messaging.get("message", {})
+        msg_id = message.get("mid") # [BARU] Ambil Message ID IG
         
-        # [FIX] PRIORITAS 1: Cek Quick Reply (Feedback) DULUAN!
-        # Instagram mengirim 'text' DAN 'quick_reply' secara bersamaan saat tombol ditekan.
-        # Jika kita cek 'text' duluan, feedback tidak akan pernah terdeteksi.
         if "quick_reply" in message:
             payload = message["quick_reply"].get("payload")
             return IncomingMessage(
                 platform_unique_id=sender_id,
                 query=f"FEEDBACK_EVENT:{payload}",
                 platform="instagram",
-                metadata={"is_feedback": True, "payload": payload}
+                metadata={"is_feedback": True, "payload": payload, "message_id": msg_id}
             )
 
-        # [FIX] PRIORITAS 2: Baru cek Text biasa
         if "text" in message:
-            # Cek flag echo dari IG
-            if message.get("is_echo"):
-                return None
-
+            if message.get("is_echo"): return None
             return IncomingMessage(
                 platform_unique_id=sender_id,
                 query=message["text"],
-                platform="instagram"
+                platform="instagram",
+                metadata={"message_id": msg_id}
             )
             
     except (IndexError, KeyError, AttributeError):

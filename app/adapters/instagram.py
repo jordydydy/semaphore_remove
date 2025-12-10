@@ -12,7 +12,8 @@ class InstagramAdapter(BaseAdapter):
     def _clean_id(self, user_id: str) -> str:
         return user_id.replace('@instagram.com', '').strip()
 
-    def send_typing_on(self, recipient_id: str):
+    # [UPDATE] Signature match
+    def send_typing_on(self, recipient_id: str, message_id: str = None):
         if not self.token: return
         payload = {"recipient": {"id": self._clean_id(recipient_id)}, "sender_action": "typing_on"}
         make_meta_request("POST", self.base_url, self.token, payload)
@@ -25,7 +26,6 @@ class InstagramAdapter(BaseAdapter):
     def send_message(self, recipient_id: str, text: str, **kwargs):
         if not self.token: return {"success": False}
         
-        # IG tidak support markdown bold (**), jadi kita ubah ke plain text atau *italic*
         text = re.sub(r'\*\*(.*?)\*\*', r'*\1*', text)
         chunks = split_text_smartly(text, 1000)
         

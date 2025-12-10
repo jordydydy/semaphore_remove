@@ -8,7 +8,7 @@ class BaseAdapter(ABC):
         pass
 
     @abstractmethod
-    def send_typing_on(self, recipient_id: str):
+    def send_typing_on(self, recipient_id: str, message_id: Optional[str] = None):
         """Menyalakan indikator mengetik."""
         pass
 

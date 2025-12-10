@@ -10,7 +10,6 @@ class WhatsAppAdapter(BaseAdapter):
         self.token = settings.WHATSAPP_ACCESS_TOKEN
 
     def _convert_markdown(self, text: str) -> str:
-        # WA pakai *bold*, ~strikethrough~
         text = re.sub(r'\*\*(.*?)\*\*', r'*\1*', text)
         text = re.sub(r'~~(.*?)~~', r'~\1~', text)
         return text
@@ -29,20 +28,51 @@ class WhatsAppAdapter(BaseAdapter):
                 "type": "text",
                 "text": {"body": chunk}
             }
+            # Support reply context jika ada
+            if kwargs.get("message_id"):
+                payload["context"] = {"message_id": kwargs["message_id"]}
+
             res = make_meta_request("POST", self.base_url, self.token, payload)
             results.append(res)
         
         return {"sent": True, "results": results}
 
-    def send_typing_on(self, recipient_id: str):
-        # WA tidak support typing indicator via API public biasa (kecuali template tertentu),
-        # tapi kita bisa mark as read sebagai tanda aktif.
-        pass 
+    def send_typing_on(self, recipient_id: str, message_id: str = None):
+        """
+        Menggabungkan 'mark as read' dan 'typing indicator' dalam satu request.
+        """
+        if not self.token: return
+        
+        # Jika ada message_id, kita bisa mark as read sekaligus typing
+        if message_id:
+            payload = {
+                "messaging_product": "whatsapp",
+                "status": "read",
+                "message_id": message_id,
+                "typing_indicator": {
+                    "type": "text"
+                }
+            }
+        else:
+            # Fallback (jarang terjadi di flow normal): Typing biasa tanpa read status
+            # Perhatikan: Endpoint messages biasa untuk typing butuh payload berbeda
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": recipient_id,
+                "type": "typing_indicator",
+                "typing_indicator": {
+                    "type": "typing_on"
+                }
+            }
+
+        make_meta_request("POST", self.base_url, self.token, payload)
 
     def send_typing_off(self, recipient_id: str):
         pass
 
     def mark_as_read(self, message_id: str):
+        # Fungsi ini mungkin redundant jika send_typing_on sudah handle read,
+        # tapi tetap disimpan untuk keperluan lain.
         payload = {
             "messaging_product": "whatsapp",
             "status": "read",
