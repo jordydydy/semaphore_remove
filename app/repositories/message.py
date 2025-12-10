@@ -9,15 +9,6 @@ class MessageRepository:
         try:
             with Database.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    # 1. Pastikan tabel ada
-                    cursor.execute("""
-                        CREATE TABLE IF NOT EXISTS bkpm.processed_messages (
-                            message_id TEXT NOT NULL,
-                            platform TEXT NOT NULL,
-                            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                            PRIMARY KEY (message_id, platform)
-                        );
-                    """)
                     
                     cursor.execute(
                         """

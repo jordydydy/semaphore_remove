@@ -67,11 +67,6 @@ async def instagram_webhook(
 
 @router.post("/api/send/reply")
 async def ignore_backend_callback(request: Request):
-    """
-    Endpoint ini menerima request dari Backend AI tapi TIDAK memprosesnya.
-    Tujuannya hanya agar Backend mendapat status 200 OK dan log tidak merah (404).
-    Kita mengandalkan Direct Response dari 'chatbot.py' untuk membalas user.
-    """
     return {"status": "ignored"}
 
 @router.post("/api/messages/process")

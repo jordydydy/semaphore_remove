@@ -3,6 +3,7 @@ from typing import Optional, Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
+    
     # App Settings
     APP_NAME: str = "Multikarnal Orchestrator"
     LOG_LEVEL: str = "INFO"
