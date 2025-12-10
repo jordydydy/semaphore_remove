@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List, Tuple
 from app.repositories.base import Database
 from app.core.exceptions import DatabaseError
 import logging
@@ -7,10 +7,6 @@ logger = logging.getLogger("repo.conversation")
 
 class ConversationRepository:
     def get_active_id(self, platform_id: str, platform: str) -> Optional[str]:
-        """
-        Mencari conversation_id yang masih aktif (end_timestamp IS NULL).
-        Menggantikan get_active_whatsapp/instagram_conversation_id.
-        """
         try:
             with Database.get_connection() as conn:
                 with conn.cursor() as cursor:
@@ -28,7 +24,6 @@ class ConversationRepository:
                     
                     if row:
                         conversation_id, end_timestamp = row
-                        # Hanya kembalikan jika sesi belum berakhir
                         if end_timestamp is None:
                             return str(conversation_id)
             return None
@@ -37,10 +32,6 @@ class ConversationRepository:
             raise DatabaseError("Failed to fetch conversation")
 
     def get_latest_id(self, platform_id: str, platform: str) -> Optional[str]:
-        """
-        Mencari conversation_id terakhir, tidak peduli aktif/selesai.
-        Digunakan untuk feedback.
-        """
         try:
             with Database.get_connection() as conn:
                 with conn.cursor() as cursor:
@@ -59,3 +50,33 @@ class ConversationRepository:
         except Exception as e:
             logger.error(f"Error fetching latest conversation: {e}")
             return None
+
+    # [UPDATE] Filter Hari Ini & Cek History Chat
+    def get_stale_sessions(self, minutes: int = 15) -> List[Tuple[str, str, str]]:
+        """
+        Mencari sesi WA/IG aktif HARI INI yang pesan terakhirnya sudah 'basi'.
+        """
+        try:
+            with Database.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        SELECT c.id, c.platform, c.platform_unique_id
+                        FROM bkpm.conversations c
+                        WHERE c.end_timestamp IS NULL 
+                        AND c.platform IN ('whatsapp', 'instagram')
+                        -- [FIX] Hanya cek sesi yang dibuat HARI INI (untuk hindari data kotor lama)
+                        AND c.start_timestamp >= CURRENT_DATE
+                        AND (
+                            SELECT MAX(ch.created_at) 
+                            FROM bkpm.chat_history ch 
+                            WHERE ch.session_id = c.id
+                        ) < NOW() - INTERVAL '{minutes} minutes'
+                        LIMIT 50
+                        """
+                    )
+                    rows = cursor.fetchall()
+                    return [(str(row[0]), row[1], row[2]) for row in rows]
+        except Exception as e:
+            logger.error(f"Error fetching stale sessions: {e}")
+            return []

@@ -24,6 +24,36 @@ class MessageOrchestrator:
         self.chatbot = chatbot
         self.adapters = adapters
 
+    # [BARU] Fungsi untuk mematikan sesi
+    async def timeout_session(self, conversation_id: str, platform: str, user_id: str):
+        adapter = self.adapters.get(platform)
+        if not adapter: return
+
+        logger.info(f"TIMEOUT: Auto-closing session {conversation_id} for {platform} user {user_id}")
+
+        # 1. Trigger Backend AI untuk menutup sesi (Isi end_timestamp)
+        # Kita kirim "Terima Kasih" secara silent.
+        try:
+            await self.chatbot.ask(
+                query="Terima Kasih", 
+                conversation_id=conversation_id, 
+                platform=platform, 
+                user_id=user_id
+            )
+        except Exception as e:
+            logger.error(f"Failed to send close signal to AI: {e}")
+
+        # 2. Kirim Pesan Penutup ke User (Sesuai Gambar Referensi)
+        closing_text = (
+            "Untuk keamanan dan kenyamanan Anda, sesi ini telah diakhiri. "
+            "Silakan mulai percakapan kembali dari awal jika membutuhkan bantuan.\n\n"
+            "_For your safety and convenience, I've ended this session. "
+            "Feel free to start a new chat whenever you're ready._"
+        )
+
+        # Kirim langsung (WA/IG tidak butuh metadata subject)
+        adapter.send_message(user_id, closing_text)
+
     async def handle_feedback(self, msg: IncomingMessage):
         payload_str = msg.metadata.get("payload", "")
         if "-" not in payload_str: return
@@ -67,7 +97,6 @@ class MessageOrchestrator:
         if answer_id: adapter.send_feedback_request(user_id, answer_id)
 
     async def process_message(self, msg: IncomingMessage):
-        """Alur utama pemrosesan pesan chat."""
         adapter = self.adapters.get(msg.platform)
         if not adapter:
             logger.warning(f"No adapter found for platform: {msg.platform}")
@@ -78,26 +107,21 @@ class MessageOrchestrator:
         except Exception:
             pass
 
-        # === LOGIKA ID (DIPERBAIKI) ===
         if not msg.conversation_id:
-            # 1. KHUSUS EMAIL: Cari Session ID berdasarkan Thread Key (ConversationId dari Azure)
+            # 1. KHUSUS EMAIL: Cek Thread Key
             if msg.platform == "email" and msg.metadata and msg.metadata.get("thread_key"):
                 thread_key = msg.metadata.get("thread_key")
                 existing_id = self.repo_msg.get_conversation_by_thread(thread_key)
-                
                 if existing_id:
-                    # KETEMU! Lanjutkan sesi ini.
                     msg.conversation_id = existing_id
                     logger.info(f"THREAD MATCH: '{thread_key}' linked to Session {existing_id}")
                 else:
-                    # TIDAK KETEMU -> Berarti ini Thread Email Baru -> Biarkan None (New Session)
                     logger.info(f"NEW THREAD DETECTED: '{thread_key}'. Starting new session.")
             
             # 2. NON-EMAIL (WA/IG): Pakai Active User Session
             elif msg.platform != "email":
                 msg.conversation_id = self.repo_conv.get_active_id(msg.platform_unique_id, msg.platform)
 
-        # Kirim ke Chatbot
         try:
             response = await self.chatbot.ask(msg.query, msg.conversation_id, msg.platform, msg.platform_unique_id)
         except Exception as e:
@@ -112,11 +136,10 @@ class MessageOrchestrator:
         if not response or not response.answer:
             return 
 
-        # === KIRIM REPLY ===
+        # Kirim Reply
         send_kwargs = {}
         if msg.platform == "email":
             if msg.metadata:
-                # Prioritas: Metadata pesan masuk
                 send_kwargs = {
                     "subject": msg.metadata.get("subject"),
                     "in_reply_to": msg.metadata.get("in_reply_to"),
@@ -124,23 +147,19 @@ class MessageOrchestrator:
                     "graph_message_id": msg.metadata.get("graph_message_id")
                 }
             else:
-                # Fallback: Data dari DB
                 meta = self.repo_msg.get_email_metadata(response.conversation_id or msg.conversation_id)
                 if meta: send_kwargs = meta
 
         adapter.send_message(msg.platform_unique_id, response.answer, **send_kwargs)
 
-        # Feedback Button
         raw_data = response.raw.get("data", {}) if response.raw else {}
         answer_id = raw_data.get("answer_id")
         if answer_id:
             adapter.send_feedback_request(msg.platform_unique_id, answer_id)
             
-        # === SIMPAN METADATA ===
+        # Simpan Metadata
         if msg.platform == "email" and response.conversation_id and msg.metadata:
-            # Kunci thread_key ini ke session_id yang baru didapat
             current_thread_session = self.repo_msg.get_conversation_by_thread(msg.metadata.get("thread_key"))
-            
             if not current_thread_session or current_thread_session == response.conversation_id:
                 self.repo_msg.save_email_metadata(
                     response.conversation_id,
