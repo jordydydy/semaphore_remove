@@ -10,7 +10,7 @@ async def run_scheduler():
     Background task untuk menutup sesi idle.
     [MODE TESTING CEPAT]
     """
-    logger.info("⏳ Session Timeout Scheduler Started (FAST MODE: 10 Mins Idle Check)...")
+    logger.info("⏳ Session Timeout Scheduler Started (FAST MODE: 5 Mins Idle Check)...")
     
     repo_conv = ConversationRepository()
     
@@ -21,7 +21,7 @@ async def run_scheduler():
         try:
             orchestrator = get_orchestrator()
             
-            stale_sessions = repo_conv.get_stale_sessions(minutes=10)
+            stale_sessions = repo_conv.get_stale_sessions(minutes=5)
             
             if stale_sessions:
                 logger.info(f"🔍 Found {len(stale_sessions)} stale sessions. Closing them...")
@@ -37,5 +37,4 @@ async def run_scheduler():
         except Exception as e:
             logger.error(f"Scheduler Error: {e}")
         
-        # [TESTING] Cek database setiap 10 detik (agar cepat ketahuan hasilnya)
         await asyncio.sleep(60)
