@@ -8,8 +8,6 @@ class Settings(BaseSettings):
     APP_NAME: str = "Multikarnal Orchestrator"
     LOG_LEVEL: str = "INFO"
     
-    SELF_API_URL: str
-    
     ENABLE_BACKGROUND_WORKER: bool = True 
 
     # Chatbot / Backend
