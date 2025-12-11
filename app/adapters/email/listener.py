@@ -5,6 +5,7 @@ import requests
 import logging
 import msal
 from email.header import decode_header
+from app.core.config import settings
 from typing import Dict, Any, Optional, Set
 
 from app.core.config import settings
@@ -77,13 +78,13 @@ def process_single_email(sender_email, sender_name, subject, body, msg_id, refer
     }
     
     try:
-        base_url = settings.CORE_API_BASE_URL.rstrip("/")
+        base_url = settings.SELF_API_URL.rstrip("/")
         api_url = f"{base_url}/api/messages/process"
         
         requests.post(api_url, json=payload, timeout=10)
         logger.info(f"Email processed: {sender_email} | Thread Key: {thread_key}")
     except Exception as req_err:
-        logger.error(f"Failed to push email to API: {req_err}")
+        logger.error(f"Failed to push email to API ({settings.SELF_API_URL}): {req_err}")
 
 def _poll_graph_api():
     token = get_graph_token()

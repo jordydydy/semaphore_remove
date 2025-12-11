@@ -8,7 +8,10 @@ class Settings(BaseSettings):
     APP_NAME: str = "Multikarnal Orchestrator"
     LOG_LEVEL: str = "INFO"
     
-    # [BARU] Flag untuk mengontrol Email Listener & Scheduler
+    # [BARU] URL aplikasi ini sendiri (Orchestrator) untuk internal loopback listener
+    # Default ke localhost:9798 sesuai setup Anda
+    SELF_API_URL: str = "http://localhost:9798"
+    
     ENABLE_BACKGROUND_WORKER: bool = True 
 
     # Chatbot / Backend
@@ -16,17 +19,17 @@ class Settings(BaseSettings):
     CHATBOT_API_KEY: Optional[str] = None
     CHATBOT_TIMEOUT_SECONDS: int = 30
     
-    CORE_API_BASE_URL: str
+    CORE_API_BASE_URL: str = "http://localhost:8000"
     CORE_API_KEY: Optional[str] = None
     
     # Feature Flags
     AUTO_REPLY_TO_PLATFORM: bool = False
-    EMAIL_POLL_INTERVAL_SECONDS: int
-    MAX_INPUT_CHARS: int
+    EMAIL_POLL_INTERVAL_SECONDS: int = 5
+    MAX_INPUT_CHARS: int = 6000
 
     # Database
     DB_HOST: str
-    DB_PORT: int
+    DB_PORT: int = 5432
     DB_NAME: str
     DB_USER: str
     DB_PASS: str
