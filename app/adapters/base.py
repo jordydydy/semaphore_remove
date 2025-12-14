@@ -7,11 +7,9 @@ class BaseAdapter(ABC):
     async def send_message(self, recipient_id: str, text: str, **kwargs) -> Dict[str, Any]:
         pass
 
-    @abstractmethod
     async def send_typing_on(self, recipient_id: str, message_id: Optional[str] = None):
         pass
 
-    @abstractmethod
     async def send_typing_off(self, recipient_id: str):
         pass
     

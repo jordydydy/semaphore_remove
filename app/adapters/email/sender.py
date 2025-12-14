@@ -17,12 +17,6 @@ logger = logging.getLogger("adapters.email")
 class EmailAdapter(BaseAdapter):
     _token_cache: Dict[str, Any] = {}
 
-    async def send_typing_on(self, recipient_id: str, message_id: str = None):
-        pass 
-
-    async def send_typing_off(self, recipient_id: str):
-        pass
-
     def _convert_markdown_to_html(self, text: str) -> str:
         text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
         text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)

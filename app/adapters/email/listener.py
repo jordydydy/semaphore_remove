@@ -83,44 +83,24 @@ def process_single_email(sender_email, sender_name, subject, body, msg_id, refer
     except Exception as req_err:
         logger.error(f"Failed to push email to API: {req_err}")
 
-def _process_graph_message(user_id, msg, token):
-    """
-    Helper function to process a single message from Graph API.
-    Reduces complexity of _poll_graph_api.
-    """
-    graph_id = msg.get("id")
-    msg_id = msg.get("internetMessageId", "").strip()
-    
-    if not msg_id:
-        _mark_graph_read(user_id, graph_id, token)
-        return
+def _determine_thread_key(msg_id, references, in_reply_to, azure_conv_id=None):
+    if azure_conv_id:
+        return azure_conv_id
+    if references:
+        return references.split()[0].strip()
+    if in_reply_to:
+        return in_reply_to.strip()
+    return msg_id
 
-    if msg_id in _processing_cache: return
-    if repo.is_processed(msg_id, "email"):
-        _mark_graph_read(user_id, graph_id, token)
-        return
-    
-    _processing_cache.add(msg_id)
-    if len(_processing_cache) > 1000: _processing_cache.clear()
-
-    subject = msg.get("subject", "")
-    sender_info = msg.get("from", {}).get("emailAddress", {})
-    sender_email = sender_info.get("address", "")
-    sender_name = sender_info.get("name", "")
-    
+def _extract_graph_body(msg):
     body_content = msg.get("body", {}).get("content", "")
     body_type = msg.get("body", {}).get("contentType", "Text")
     
     if body_type.lower() == "html":
-        clean_body = sanitize_email_body(None, body_content)
-    else:
-        clean_body = sanitize_email_body(body_content, None)
+        return sanitize_email_body(None, body_content)
+    return sanitize_email_body(body_content, None)
 
-    if not clean_body: 
-        _mark_graph_read(user_id, graph_id, token)
-        return
-
-    headers_list = msg.get("internetMessageHeaders", []) or []
+def _extract_graph_headers(headers_list):
     references = ""
     in_reply_to = ""
     for h in headers_list:
@@ -129,19 +109,45 @@ def _process_graph_message(user_id, msg, token):
             references = h.get("value", "")
         elif h_name == "in-reply-to":
             in_reply_to = h.get("value", "")
+    return references, in_reply_to
 
-    azure_conv_id = msg.get("conversationId")
+def _process_graph_message(user_id, msg, token):
+    graph_id = msg.get("id")
+    msg_id = msg.get("internetMessageId", "").strip()
     
-    if azure_conv_id:
-        thread_key = azure_conv_id
-    elif references:
-        thread_key = references.split()[0].strip()
-    elif in_reply_to:
-        thread_key = in_reply_to.strip()
-    else:
-        thread_key = msg_id
+    if not msg_id:
+        _mark_graph_read(user_id, graph_id, token)
+        return
 
-    process_single_email(sender_email, sender_name, subject, clean_body, msg_id, references, thread_key, graph_id)
+    if msg_id in _processing_cache: return
+    
+    if repo.is_processed(msg_id, "email"):
+        _mark_graph_read(user_id, graph_id, token)
+        return
+    
+    _processing_cache.add(msg_id)
+    if len(_processing_cache) > 1000: _processing_cache.clear()
+
+    clean_body = _extract_graph_body(msg)
+    if not clean_body: 
+        _mark_graph_read(user_id, graph_id, token)
+        return
+
+    references, in_reply_to = _extract_graph_headers(msg.get("internetMessageHeaders", []) or [])
+    thread_key = _determine_thread_key(msg_id, references, in_reply_to, msg.get("conversationId"))
+
+    sender_info = msg.get("from", {}).get("emailAddress", {})
+    
+    process_single_email(
+        sender_info.get("address", ""),
+        sender_info.get("name", ""),
+        msg.get("subject", ""),
+        clean_body,
+        msg_id,
+        references,
+        thread_key,
+        graph_id
+    )
     _mark_graph_read(user_id, graph_id, token)
 
 def _poll_graph_api():
@@ -187,60 +193,70 @@ def _mark_graph_read(user_id, message_id, token):
     except Exception:
         pass
 
-def _process_imap_message(mail, e_id):
-    """
-    Helper function to process a single IMAP message.
-    Reduces complexity of _poll_imap.
-    """
-    try:
-        fetch_res = mail.fetch(e_id, '(RFC822)')
-        if not fetch_res or len(fetch_res) != 2:
-            logger.warning(f"Skipping email {e_id}: Fetch returned empty/invalid response.")
-            return
-        
-        _, msg_data = fetch_res
-        
-        if not msg_data or not isinstance(msg_data, list) or not msg_data[0]:
-            logger.warning(f"Skipping email {e_id}: Message data is empty/invalid.")
-            return
+def _fetch_and_parse_imap(mail, e_id):
+    fetch_res = mail.fetch(e_id, '(RFC822)')
+    if not fetch_res or len(fetch_res) != 2:
+        logger.warning(f"Skipping email {e_id}: Fetch returned empty/invalid response.")
+        return None
+    
+    _, msg_data = fetch_res
+    if not msg_data or not isinstance(msg_data, list) or not msg_data[0]:
+        logger.warning(f"Skipping email {e_id}: Message data is empty/invalid.")
+        return None
 
-        raw_email = msg_data[0][1]
-        msg = email.message_from_bytes(raw_email)
-        
+    return email.message_from_bytes(msg_data[0][1])
+
+def _extract_imap_sender(msg):
+    sender = decode_str(msg.get("From"))
+    if '<' in sender:
+        email_addr = sender.split('<')[-1].replace('>', '').strip()
+        name = sender.split('<')[0].strip()
+    else:
+        email_addr = sender
+        name = sender
+    return email_addr, name
+
+def _extract_imap_body(msg):
+    text_plain, html = "", ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            ctype = part.get_content_type()
+            if ctype == "text/plain":
+                text_plain = part.get_payload(decode=True).decode(errors='ignore')
+            elif ctype == "text/html":
+                html = part.get_payload(decode=True).decode(errors='ignore')
+    else:
+        text_plain = msg.get_payload(decode=True).decode(errors='ignore')
+    return sanitize_email_body(text_plain, html)
+
+def _process_imap_message(mail, e_id):
+    try:
+        msg = _fetch_and_parse_imap(mail, e_id)
+        if not msg: return
+
         msg_id = msg.get("Message-ID", "").strip()
         
         if not msg_id or repo.is_processed(msg_id, "email"):
             return
         
-        subject = decode_str(msg.get("Subject"))
-        sender = decode_str(msg.get("From"))
-        sender_email = sender.split('<')[-1].replace('>', '').strip() if '<' in sender else sender
-        sender_name = sender.split('<')[0].strip()
-
-        text_plain, html = "", ""
-        if msg.is_multipart():
-            for part in msg.walk():
-                if part.get_content_type() == "text/plain":
-                    text_plain = part.get_payload(decode=True).decode(errors='ignore')
-                elif part.get_content_type() == "text/html":
-                    html = part.get_payload(decode=True).decode(errors='ignore')
-        else:
-            text_plain = msg.get_payload(decode=True).decode(errors='ignore')
-
-        clean_body = sanitize_email_body(text_plain, html)
+        clean_body = _extract_imap_body(msg)
         if not clean_body: return
 
+        sender_email, sender_name = _extract_imap_sender(msg)
         references = msg.get("References", "")
         in_reply_to = msg.get("In-Reply-To", "")
-        
-        if references:
-            thread_key = references.split()[0].strip()
-        elif in_reply_to:
-            thread_key = in_reply_to.strip()
-        else:
-            thread_key = msg_id
+        thread_key = _determine_thread_key(msg_id, references, in_reply_to)
 
-        process_single_email(sender_email, sender_name, subject, clean_body, msg_id, references, thread_key, None)
+        process_single_email(
+            sender_email, 
+            sender_name, 
+            decode_str(msg.get("Subject")), 
+            clean_body, 
+            msg_id, 
+            references, 
+            thread_key, 
+            None
+        )
     
     except Exception as e_inner:
         logger.error(f"Error processing individual email {e_id}: {e_inner}")

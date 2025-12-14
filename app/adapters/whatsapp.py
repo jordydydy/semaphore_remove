@@ -39,7 +39,6 @@ class WhatsAppAdapter(BaseAdapter):
     async def send_typing_on(self, recipient_id: str, message_id: str = None):
         if not self.token: return
         
-        # Kirim status 'read' jika ada message_id
         if message_id:
             payload = {
                 "messaging_product": "whatsapp",
@@ -50,9 +49,6 @@ class WhatsAppAdapter(BaseAdapter):
                 }
             }
             await make_meta_request("POST", self.base_url, self.token, payload)
-
-    async def send_typing_off(self, recipient_id: str):
-        pass
 
     async def mark_as_read(self, message_id: str):
         payload = {

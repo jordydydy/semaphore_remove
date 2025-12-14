@@ -15,7 +15,6 @@ setup_logging()
 logger = logging.getLogger("main")
 
 def _setup_email_listener():
-    """Helper to handle email listener thread startup logic."""
     is_listener_running = False
     for t in threading.enumerate():
         if t.name == "EmailListenerThread":
@@ -48,10 +47,7 @@ async def lifespan(app: FastAPI):
     try:
         if scheduler_task:
             scheduler_task.cancel()
-            try:
-                await scheduler_task
-            except asyncio.CancelledError:
-                raise
+            await scheduler_task
     finally:
         Database.close()
 
