@@ -2,5 +2,5 @@ projectKey=multikanal
 serverUrl=http://localhost:9000
 serverVersion=25.11.0.114957
 dashboardUrl=http://localhost:9000/dashboard?id=multikanal
-ceTaskId=750ea0e0-2d61-42cd-9a4b-7b8a7bb2b3b4
-ceTaskUrl=http://localhost:9000/api/ce/task?id=750ea0e0-2d61-42cd-9a4b-7b8a7bb2b3b4
+ceTaskId=0cc484ce-fdec-4273-9262-19f3dad12208
+ceTaskUrl=http://localhost:9000/api/ce/task?id=0cc484ce-fdec-4273-9262-19f3dad12208
