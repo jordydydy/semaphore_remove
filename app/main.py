@@ -14,6 +14,25 @@ import logging
 setup_logging()
 logger = logging.getLogger("main")
 
+def _setup_email_listener():
+    """Helper to handle email listener thread startup logic."""
+    is_listener_running = False
+    for t in threading.enumerate():
+        if t.name == "EmailListenerThread":
+            is_listener_running = True
+            break
+    
+    if not is_listener_running and settings.EMAIL_PROVIDER != "unknown":
+        email_thread = threading.Thread(
+            target=start_email_listener, 
+            name="EmailListenerThread", 
+            daemon=True
+        )
+        email_thread.start()
+        logger.info("📧 Email Listener Thread Started")
+    elif is_listener_running:
+        logger.warning("⚠️ Email Listener already running, skipping start.")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Database.initialize()
@@ -21,36 +40,20 @@ async def lifespan(app: FastAPI):
     scheduler_task = None
     
     if settings.ENABLE_BACKGROUND_WORKER:
-        is_listener_running = False
-        for t in threading.enumerate():
-            if t.name == "EmailListenerThread":
-                is_listener_running = True
-                break
-        
-        if not is_listener_running and settings.EMAIL_PROVIDER != "unknown":
-            email_thread = threading.Thread(
-                target=start_email_listener, 
-                name="EmailListenerThread", 
-                daemon=True
-            )
-            email_thread.start()
-            logger.info("📧 Email Listener Thread Started")
-        else:
-            if is_listener_running:
-                logger.warning("⚠️ Email Listener already running, skipping start.")
-
+        _setup_email_listener()
         scheduler_task = asyncio.create_task(run_scheduler())
     
     yield
     
-    if scheduler_task:
-        scheduler_task.cancel()
-        try:
-            await scheduler_task
-        except asyncio.CancelledError:
-            pass
-        
-    Database.close()
+    try:
+        if scheduler_task:
+            scheduler_task.cancel()
+            try:
+                await scheduler_task
+            except asyncio.CancelledError:
+                raise
+    finally:
+        Database.close()
 
 app = FastAPI(
     title=settings.APP_NAME,

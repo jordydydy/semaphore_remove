@@ -76,6 +76,21 @@ class MessageOrchestrator:
         except Exception as e:
             logger.error(f"Gagal kirim feedback: {e}")
 
+    def _get_email_send_kwargs(self, conversation_id: str) -> Dict:
+        if not conversation_id:
+            return {"subject": "Re: Your Inquiry"}
+            
+        meta = self.repo_msg.get_email_metadata(conversation_id) if conversation_id else None
+        if meta: 
+            if settings.EMAIL_PROVIDER == "azure_oauth2":
+                return {
+                    "subject": meta.get("subject"),
+                    "graph_message_id": meta.get("in_reply_to")
+                }
+            return meta
+            
+        return {"subject": "Re: Your Inquiry"}
+
     async def send_manual_message(self, data: dict):
         payload = data.get("data") if "data" in data else data
         user_id = payload.get("user") or payload.get("platform_unique_id") or payload.get("recipient_id") or payload.get("user_id")
@@ -83,7 +98,6 @@ class MessageOrchestrator:
         answer = payload.get("answer") or payload.get("message")
         conversation_id = payload.get("conversation_id")
         answer_id = payload.get("answer_id")
-        
         is_helpdesk = payload.get("is_helpdesk", False)
         
         if not user_id or not answer or not platform: 
@@ -94,45 +108,29 @@ class MessageOrchestrator:
         if not adapter: return
         
         send_kwargs = {}
-        
         if platform == "email":
-            meta = self.repo_msg.get_email_metadata(conversation_id) if conversation_id else None
-            if meta: 
-                if settings.EMAIL_PROVIDER == "azure_oauth2":
-                    send_kwargs = {"subject": meta.get("subject")}
-                    send_kwargs["graph_message_id"] = meta.get("in_reply_to")
-                else:
-                    send_kwargs = meta
-            else: 
-                send_kwargs = {"subject": "Re: Your Inquiry"}
+            send_kwargs = self._get_email_send_kwargs(conversation_id)
         
         await adapter.send_message(user_id, answer, **send_kwargs)
-        try: await adapter.send_typing_off(user_id)
-        except: pass
+        
+        try: 
+            await adapter.send_typing_off(user_id)
+        except Exception: 
+            pass
         
         if answer_id and not is_helpdesk: 
             await adapter.send_feedback_request(user_id, answer_id)
 
-    async def process_message(self, msg: IncomingMessage):
-        adapter = self.adapters.get(msg.platform)
-        if not adapter: return
-
-        try:
-            msg_id = msg.metadata.get("message_id") if msg.metadata else None
-            await adapter.send_typing_on(msg.platform_unique_id, message_id=msg_id)
-        except Exception:
-            pass
-
-        if not msg.conversation_id:
-            if msg.platform == "email" and msg.metadata and msg.metadata.get("thread_key"):
-                thread_key = msg.metadata.get("thread_key")
-                existing_id = self.repo_msg.get_conversation_by_thread(thread_key)
-                if existing_id:
-                    msg.conversation_id = existing_id
-                    logger.info(f"THREAD MATCH (DB): Found existing session {existing_id}")
-            
-            if not msg.conversation_id and msg.platform != "email":
-                msg.conversation_id = self.repo_conv.get_active_id(msg.platform_unique_id, msg.platform)
+    def _ensure_conversation_id(self, msg: IncomingMessage):
+        if msg.platform == "email" and msg.metadata and msg.metadata.get("thread_key"):
+            thread_key = msg.metadata.get("thread_key")
+            existing_id = self.repo_msg.get_conversation_by_thread(thread_key)
+            if existing_id:
+                msg.conversation_id = existing_id
+                logger.info(f"THREAD MATCH (DB): Found existing session {existing_id}")
+        
+        if not msg.conversation_id and msg.platform != "email":
+            msg.conversation_id = self.repo_conv.get_active_id(msg.platform_unique_id, msg.platform)
 
         if not msg.conversation_id:
             if msg.platform == "email" and msg.metadata and msg.metadata.get("thread_key"):
@@ -143,6 +141,7 @@ class MessageOrchestrator:
                 msg.conversation_id = str(uuid.uuid4())
                 logger.info(f"GENERATED RANDOM ID (UUIDv4): {msg.conversation_id}")
 
+    def _save_email_metadata(self, msg: IncomingMessage):
         if msg.platform == "email" and msg.conversation_id and msg.metadata:
             db_in_reply_to = (
                 msg.metadata.get("graph_message_id") 
@@ -158,9 +157,26 @@ class MessageOrchestrator:
                 msg.metadata.get("thread_key", "")
             )
 
+    async def process_message(self, msg: IncomingMessage):
+        adapter = self.adapters.get(msg.platform)
+        if not adapter: return
+
+        try:
+            msg_id = msg.metadata.get("message_id") if msg.metadata else None
+            await adapter.send_typing_on(msg.platform_unique_id, message_id=msg_id)
+        except Exception:
+            pass
+
+        if not msg.conversation_id:
+            self._ensure_conversation_id(msg)
+
+        self._save_email_metadata(msg)
+
         success = await self.chatbot.ask(msg.query, msg.conversation_id, msg.platform, msg.platform_unique_id)
         
         if not success:
             logger.error("Gagal push ke backend AI.")
-            try: await adapter.send_typing_off(msg.platform_unique_id)
-            except: pass
+            try: 
+                await adapter.send_typing_off(msg.platform_unique_id)
+            except Exception: 
+                pass

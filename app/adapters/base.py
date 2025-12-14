@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
+import asyncio
 
 class BaseAdapter(ABC):
     @abstractmethod
@@ -15,4 +16,5 @@ class BaseAdapter(ABC):
         pass
     
     async def send_feedback_request(self, recipient_id: str, answer_id: int) -> Dict[str, Any]:
+        await asyncio.sleep(0)
         return {"sent": False, "reason": "Not implemented"}
