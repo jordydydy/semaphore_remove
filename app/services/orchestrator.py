@@ -1,7 +1,7 @@
 import asyncio
 import httpx
 import uuid
-import hashlib
+import re
 from typing import Dict
 from app.schemas.models import IncomingMessage
 from app.repositories.conversation import ConversationRepository
@@ -129,16 +129,21 @@ class MessageOrchestrator:
 
     def _ensure_conversation_id(self, msg: IncomingMessage):
         if msg.platform == "email" and msg.metadata:
-            if settings.EMAIL_PROVIDER == "azure_oauth2" and msg.metadata.get("conversation_id"):
-                azure_conv_id = msg.metadata.get("conversation_id")
-                existing_id = self.repo_msg.get_conversation_by_azure_thread(azure_conv_id)
-                if existing_id:
-                    msg.conversation_id = existing_id
-                    return
-                
-                msg.conversation_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, azure_conv_id))
-                return
             
+            # [LOGIKA AZURE]
+            if settings.EMAIL_PROVIDER == "azure_oauth2":
+                azure_conv_id = msg.metadata.get("conversation_id")
+                
+                if azure_conv_id:
+                    existing_id = self.repo_msg.get_conversation_by_azure_thread(azure_conv_id)
+                    
+                    if existing_id:
+                        msg.conversation_id = existing_id
+                    else:
+                        msg.conversation_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, azure_conv_id))
+                    
+                    return 
+
             thread_key = msg.metadata.get("thread_key")
             if thread_key:
                 existing_id = self.repo_msg.get_conversation_by_thread(thread_key)
@@ -148,9 +153,10 @@ class MessageOrchestrator:
 
             sender = msg.platform_unique_id.lower()
             subject = msg.metadata.get("subject", "").lower().strip()
-            seed = f"{sender}|{subject}"
+            clean_subject = re.sub(r'^(re:|fwd:|balas:|tr:|aw:)\s*', '', subject, flags=re.IGNORECASE).strip()
+            
+            seed = f"{sender}|{clean_subject}"
             msg.conversation_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, seed))
-            logger.info(f"EMAIL FIRST THREAD: Generated deterministic ID {msg.conversation_id} for {sender}")
             return
 
         if not msg.conversation_id:
@@ -161,24 +167,19 @@ class MessageOrchestrator:
 
     async def process_message(self, msg: IncomingMessage):
         adapter = self.adapters.get(msg.platform)
-        if not adapter: 
-            return
-
-        try:
-            msg_id = msg.metadata.get("message_id") if msg.metadata else None
-            
-            await adapter.send_typing_on(msg.platform_unique_id, message_id=msg_id)
-            
-            if msg.platform == "whatsapp" and msg_id:
-                if hasattr(adapter, 'mark_as_read'):
-                    await adapter.mark_as_read(msg_id)
-        except Exception as e:
-            logger.warning(f"Failed to set status indicators for {msg.platform}: {e}")
+        if not adapter: return
 
         if not msg.conversation_id:
             self._ensure_conversation_id(msg)
 
         self._save_email_metadata(msg)
+
+        try:
+            msg_id = msg.metadata.get("message_id") if msg.metadata else None
+            await adapter.send_typing_on(msg.platform_unique_id, message_id=msg_id)
+            if msg.platform == "whatsapp" and msg_id and hasattr(adapter, 'mark_as_read'):
+                await adapter.mark_as_read(msg_id)
+        except Exception: pass
 
         success = await self.chatbot.ask(
             msg.query, 
@@ -189,10 +190,8 @@ class MessageOrchestrator:
         
         if not success:
             logger.error(f"Gagal push ke backend AI for conversation {msg.conversation_id}")
-            try: 
-                await adapter.send_typing_off(msg.platform_unique_id)
-            except Exception: 
-                pass
+            try: await adapter.send_typing_off(msg.platform_unique_id)
+            except Exception: pass
 
     def _save_email_metadata(self, msg: IncomingMessage):
         if msg.platform != "email" or not msg.conversation_id or not msg.metadata:
@@ -200,17 +199,17 @@ class MessageOrchestrator:
             
         if settings.EMAIL_PROVIDER == "azure_oauth2":
             self.repo_msg.save_email_metadata(
-                msg.conversation_id,
-                msg.metadata.get("subject", ""),
-                msg.metadata.get("graph_message_id", ""),
-                "",
-                msg.metadata.get("conversation_id", "")
+                conversation_id=msg.conversation_id,
+                subject=msg.metadata.get("subject", ""),
+                in_reply_to=msg.metadata.get("graph_message_id", ""), 
+                references="",
+                thread_key=msg.metadata.get("conversation_id", "") 
             )
         else:
             self.repo_msg.save_email_metadata(
-                msg.conversation_id,
-                msg.metadata.get("subject", ""),
-                msg.metadata.get("message_id", ""),
-                msg.metadata.get("references", ""),
-                msg.metadata.get("thread_key", "")
+                conversation_id=msg.conversation_id,
+                subject=msg.metadata.get("subject", ""),
+                in_reply_to=msg.metadata.get("message_id", ""),
+                references=msg.metadata.get("references", ""),
+                thread_key=msg.metadata.get("thread_key", "")
             )
