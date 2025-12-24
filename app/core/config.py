@@ -7,7 +7,6 @@ class Settings(BaseSettings):
     # App Settings
     APP_NAME: str = "Multikarnal Orchestrator"
     LOG_LEVEL: str = "INFO"
-    
     ENABLE_BACKGROUND_WORKER: bool = True 
 
     # Backend API Configuration
@@ -16,8 +15,7 @@ class Settings(BaseSettings):
     BACKEND_API_TIMEOUT_SECONDS: int = 30
     
     # Feature Flags
-    AUTO_REPLY_TO_PLATFORM: bool = False
-    EMAIL_POLL_INTERVAL_SECONDS: int = 5
+    EMAIL_POLL_INTERVAL_SECONDS: int = 15
     MAX_INPUT_CHARS: int = 6000
 
     # Database
@@ -38,15 +36,10 @@ class Settings(BaseSettings):
 
     # Email Settings
     EMAIL_PROVIDER: Literal["gmail", "azure_oauth2", "unknown"] = "unknown"
-    EMAIL_HOST: str
-    EMAIL_PORT: int = 993
+    EMAIL_HOST: str = "smtp.gmail.com"
+    EMAIL_PORT: int = 587
     EMAIL_USER: Optional[str] = None
     EMAIL_PASS: Optional[str] = None
-    
-    SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
-    SMTP_USERNAME: Optional[str] = None
-    SMTP_PASSWORD: Optional[str] = None
     
     # Azure OAuth2
     AZURE_CLIENT_ID: Optional[str] = None

@@ -122,14 +122,14 @@ class EmailAdapter(BaseAdapter):
     def _send_via_smtp(self, to_email, subject, html_body, in_reply_to, references):
         try:
             msg = MIMEMultipart()
-            msg['From'] = settings.SMTP_USERNAME or settings.EMAIL_USER
+            msg['From'] = settings.EMAIL_USER
             msg['To'] = to_email
             msg['Subject'] = subject
             msg['Message-ID'] = make_msgid()
             if in_reply_to: msg['In-Reply-To'] = in_reply_to
             if references: msg['References'] = references
             msg.attach(MIMEText(html_body, 'html'))
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+            with smtplib.SMTP(settings.EMAIL_HOST, settings.EMAIL_PORT) as server:
                 server.starttls()
                 server.login(settings.EMAIL_USER, settings.EMAIL_PASS)
                 server.send_message(msg)
