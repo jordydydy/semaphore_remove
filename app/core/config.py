@@ -13,7 +13,6 @@ class Settings(BaseSettings):
     # Backend API Configuration
     BACKEND_API_BASE_URL: str
     BACKEND_API_KEY: Optional[str] = None
-    BACKEND_API_TIMEOUT_SECONDS: int = 30
     
     # Feature Flags
     EMAIL_POLL_INTERVAL_SECONDS: int = 15
