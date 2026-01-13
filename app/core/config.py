@@ -9,7 +9,6 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     ENABLE_BACKGROUND_WORKER: bool = True 
     X_API_KEY: Optional[str] = None 
-    BACKEND_CONCURRENCY_LIMIT: int
 
     # Backend API Configuration
     BACKEND_API_BASE_URL: str
@@ -24,7 +23,7 @@ class Settings(BaseSettings):
     DB_PORT: int
     DB_NAME: str
     DB_USER: str
-    DB_PASS: str
+    DB_PASS: Optional[str] = None
 
     # Social Media Credentials
     INSTAGRAM_PAGE_ACCESS_TOKEN: Optional[str] = None

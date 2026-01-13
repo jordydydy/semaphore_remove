@@ -145,13 +145,11 @@ class MessageOrchestrator:
 
     def _check_helpdesk_session(self, msg: IncomingMessage) -> Optional[str]:
         if msg.platform == "email":
-            return None  # Email doesn't use session continuity check
+            return None  
             
-        # Check for active session
         active_id = self.repo_conv.get_active_id(msg.platform_unique_id, msg.platform)
         
         if active_id:
-            # Check if it's a helpdesk session
             if self.repo_conv.is_helpdesk_session(active_id):
                 logger.info(f"User {msg.platform_unique_id} has active helpdesk session: {active_id}")
                 return active_id

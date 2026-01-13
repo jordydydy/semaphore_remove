@@ -8,16 +8,13 @@ import logging
 logger = logging.getLogger("service.chatbot")
 
 class ChatbotClient:
-    def __init__(self):
-        self.sem = asyncio.Semaphore(settings.BACKEND_CONCURRENCY_LIMIT)
 
     async def _fire_request(self, url: str, payload: dict, headers: dict):
-        async with self.sem:
-            try:
-                async with httpx.AsyncClient(timeout=None) as client:
-                    await client.post(url, json=payload, headers=headers)
-            except Exception as e:
-                logger.error(f"Background request failed: {e}")
+        try:
+            async with httpx.AsyncClient(timeout=None) as client:
+                await client.post(url, json=payload, headers=headers)
+        except Exception as e:
+            logger.error(f"Background request failed: {e}")
 
     async def ask(self, query: str, conversation_id: str, platform: str, user_id: str) -> bool:
         start_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
